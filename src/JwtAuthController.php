@@ -2,12 +2,11 @@
 
 namespace Coldsnake\JwtAuth;
 
-use Psr\Http\Message\ResponseInterface as Response;
+use GuzzleHttp\Exception\RequestException;
+use Laminas\Diactoros\Response\RedirectResponse;
+use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Psr\Http\Server\RequestHandlerInterface;
-use Zend\Diactoros\Response\JsonResponse;
-use Zend\Diactoros\Response\TextResponse;
-use Zend\Diactoros\Response\RedirectResponse;
 use Lcobucci\JWT\Parser;
 use Lcobucci\JWT\ValidationData;
 use Lcobucci\JWT\Claim\Validatable;
@@ -25,7 +24,7 @@ use League\Flysystem\Filesystem;
 class JwtAuthController implements RequestHandlerInterface
 {
     /**
-     * @var \Flarum\User\UserRepository
+     * @var UserRepository
      */
     protected $users;
 
@@ -58,11 +57,13 @@ class JwtAuthController implements RequestHandlerInterface
      * @var SiteUrl
      */
     protected $site_url;
-
+    
     /**
      * @param Client $api
      * @param SessionAuthenticator $authenticator
      * @param Rememberer $rememberer
+     * @param UserRepository $users
+     * @param Application $app
      */
     public function __construct(Client $api, SessionAuthenticator $authenticator, Rememberer $rememberer, UserRepository $users, Application $app)
     {
@@ -76,7 +77,7 @@ class JwtAuthController implements RequestHandlerInterface
         $this->site_url = $conf['url'];
     }
 
-    public function handle(Request $request): Response
+    public function handle(Request $request): ResponseInterface
     {
         $queryParams = $request->getQueryParams();
 
@@ -95,7 +96,7 @@ class JwtAuthController implements RequestHandlerInterface
 
         // remove any sizing params
         $p = '?sz=';
-        if (strpos($avatar, $p)){
+        if (strpos($avatar, $p)) {
             $avatar = substr($avatar, 0, strpos($avatar, $p));
         }
 
@@ -103,20 +104,20 @@ class JwtAuthController implements RequestHandlerInterface
         $httpClient = new HttpClient();
         $res = $httpClient->get('https://carecentral.nursenextdoor.com/api/simpleuser/'.$email.'/HGUWYDG2374g09mas');
         $body = $res->getBody()->getContents();
-        $cc_user = json_decode($body);
+        $cc_user = json_decode($body, false);
 
         app('log')->info('User API response = '.var_export($cc_user, 1));
         app('log')->info('User Role = '.$cc_user->data->role_id);
 
         $accepted_role_ids = [1,5,6,7,10];
-        if (!in_array($cc_user->data->role_id, $accepted_role_ids)) {
+        if (!in_array($cc_user->data->role_id, $accepted_role_ids, true)) {
             app('log')->info('role is invalid!');
             throw new PermissionDeniedException('Invalid role.');
         }
 
         $u = $this->users->findByEmail($email);
 
-        if ($u != null) {
+        if ($u !== null) {
             // logIn
             app('log')->info('Login');
             $userId = $u->id;
@@ -124,17 +125,16 @@ class JwtAuthController implements RequestHandlerInterface
 
             $target = 'photo.jpg';
             $length = strlen($target);
-            if ((empty($avatarAtt) || (substr($avatarAtt,0,4) === 'http')) && !empty($avatar) && (substr($avatar, -$length) === $target)){
+            if ((empty($avatarAtt) || (strpos($avatarAtt, 'http') === 0)) && !empty($avatar) && (substr($avatar, -$length) === $target)) {
                 $httpClient = new HttpClient();
                 try {
                     $res = $httpClient->request('GET', $avatar);
-                    if ($res->getStatusCode() != 404 && $res->getStatusCode() != 500){
-
+                    if ($res->getStatusCode() !== 404 && $res->getStatusCode() != 500) {
                         $contents = file_get_contents($avatar);
                         $user_dir = $this->path.DIRECTORY_SEPARATOR.'user'.DIRECTORY_SEPARATOR.$u->id;
                         $filename = 'profile_'.$u->id.'.jpg';
                         $fs = new Filesystem(new Local($user_dir));
-                        $fs->put($filename,$contents);
+                        $fs->put($filename, $contents);
 
                         //$profile_path = realpath($user_dir.DIRECTORY_SEPARATOR.$filename);
                         $public_url = 'user'.DIRECTORY_SEPARATOR.$u->id.DIRECTORY_SEPARATOR.$filename;
@@ -183,8 +183,8 @@ class JwtAuthController implements RequestHandlerInterface
                 $username = substr($email, 0, strpos($email, '@'));
                 $username = preg_replace("/[^A-Za-z0-9 ]/", '', $username);
                 $usernameExists = $this->users->findByIdentification($username);
-                if ($usernameExists != null) {
-                    $username = $username.rand(10, 99);
+                if ($usernameExists !== null) {
+                    $username .= random_int(10, 99);
                 }
                 $password = $this->generateStrongPassword();
                 $userdata = [
@@ -226,7 +226,7 @@ class JwtAuthController implements RequestHandlerInterface
 
             $response = $this->api->send($controller, $actor, [], $body);
 
-            $body = json_decode($response->getBody());
+            $body = json_decode($response->getBody(), false);
 
             if (isset($body->data)) {
                 $userId = $body->data->id;
@@ -235,16 +235,15 @@ class JwtAuthController implements RequestHandlerInterface
 
                 $target = 'photo.jpg';
                 $length = strlen($target);
-                if (!empty($avatar) && (substr($avatar, -$length) === $target)){
+                if (!empty($avatar) && (substr($avatar, -$length) === $target)) {
                     $httpClient = new HttpClient();
                     $res = $httpClient->request('GET', $avatar);
-                    if ($res->getStatusCode() != 404 && $res->getStatusCode() != 500){
-
+                    if ($res->getStatusCode() !== 404 && $res->getStatusCode() != 500) {
                         $contents = file_get_contents($avatar);
                         $user_dir = $this->path.DIRECTORY_SEPARATOR.'user'.DIRECTORY_SEPARATOR.$user->id;
                         $filename = 'profile_'.$user->id.'.jpg';
                         $fs = new Filesystem(new Local($user_dir));
-                        $fs->put($filename,$contents);
+                        $fs->put($filename, $contents);
 
                         //$profile_path = realpath($user_dir.DIRECTORY_SEPARATOR.$filename);
                         $public_url = 'user'.DIRECTORY_SEPARATOR.$user->id.DIRECTORY_SEPARATOR.$filename;
@@ -265,10 +264,8 @@ class JwtAuthController implements RequestHandlerInterface
                 $response = $this->rememberer->rememberUser($response, $userId);
             }
         }
-
-        $response2 = new RedirectResponse('/');
-
-        return $response2;
+    
+        return new RedirectResponse('/');
     }
 
     // Generates a strong password of N length containing at least one lower case letter,
