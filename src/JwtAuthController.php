@@ -1,6 +1,6 @@
 <?php
 
-namespace Coldsnake\JwtAuth;
+namespace Maicol07\JwtAuth;
 
 use GuzzleHttp\Exception\RequestException;
 use Laminas\Diactoros\Response\RedirectResponse;
@@ -23,39 +23,25 @@ use League\Flysystem\Filesystem;
 
 class JwtAuthController implements RequestHandlerInterface
 {
-    /**
-     * @var UserRepository
-     */
+    /** @var UserRepository */
     protected $users;
 
-    /**
-     * @var Client
-     */
+    /** @var Client */
     protected $api;
 
-    /**
-     * @var SessionAuthenticator
-     */
+    /** @var SessionAuthenticator */
     protected $authenticator;
 
-    /**
-     * @var Rememberer
-     */
+    /** @var Rememberer */
     protected $rememberer;
 
-    /**
-     * @var Path
-     */
+    /** @var string */
     protected $path;
 
-    /**
-     * @var PublicPath
-     */
+    /** @var string */
     protected $public_path;
 
-    /**
-     * @var SiteUrl
-     */
+    /** @var string */
     protected $site_url;
     
     /**

@@ -1,7 +1,7 @@
 <?php
 
 use Flarum\Extend;
-use Coldsnake\JwtAuth\JwtAuthController;
+use Maicol07\JwtAuth\JwtAuthController;
 
 return [
     (new Extend\Frontend('admin'))

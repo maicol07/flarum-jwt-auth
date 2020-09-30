@@ -1,5 +1,5 @@
 {
-    "name": "rattler72/flarum-jwt-auth",
+    "name": "maicol07/flarum-jwt-auth",
     "description": "Register and authenticate through a JWT token",
     "type": "flarum-extension",
     "keywords": ["authentication"],
@@ -22,7 +22,7 @@
         "roave/security-advisories": "dev-master"
     },
     "autoload": {
-        "psr-4": {"Coldsnake\\JwtAuth\\": "src/"}
+        "psr-4": {"Maicol07\\JwtAuth\\": "src/"}
     },
     "extra": {
         "flarum-extension": {

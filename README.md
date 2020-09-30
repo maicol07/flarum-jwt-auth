@@ -1,6 +1,7 @@
 # JWT Register and Authenticate by Coldsnake Digital
+[![MIT license](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/maicol07/flarum-jwt-auth/blob/master/LICENSE.md)
 
-[![MIT license](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/flagrow/impersonate/blob/master/LICENSE.md)
+A fork of [rattler72/flarum-jwt-auth](https://github.com/rattler72/flarum-jwt-auth).
 
 This extension registers and authenticates a user based on a JWT.
 
@@ -9,17 +10,18 @@ This extension registers and authenticates a user based on a JWT.
 Use Composer:
 
 ```bash
-composer require rattler72/flarum-jwt-auth
+composer require maicol07/flarum-jwt-auth
 ```
 
 ## Updating
 
 ```bash
-composer update rattler72/flarum-jwt-auth
+composer update maicol07/flarum-jwt-auth
 php flarum cache:clear
 ```
 
 ## Usage
 
-Pass the JWT as a param to the following URL: http://yourfloarumdomain.com/api/jwt-auth?token=[token]
+Pass the JWT as a param to the following URL: `http://yourfloarumdomain.com/api/jwt-auth?token=[token]`.
+
 This will register the user with the username being the same as the prefix of the email address and then log them into that account. The password is randomly generated. This is meant to work in conjunction with SSO extensions to handle ongoing authentication.
