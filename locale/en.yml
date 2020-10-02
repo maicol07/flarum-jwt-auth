@@ -1,7 +1,5 @@
 maicol07-jwt-auth:
-
-  # Translations in this namespace are used by the admin interface.
   admin:
-    jwt_settings:
-      iss_label: Issuing URL
+    settings:
+      iss: Issuing URL
       title: JWT Auth Settings
