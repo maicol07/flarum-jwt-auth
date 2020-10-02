@@ -1,0 +1,5 @@
+maicol07-jwt-auth:
+  admin:
+    settings:
+      iss: URL dell'emittente
+      title: Impostazioni autenticazione JWT
