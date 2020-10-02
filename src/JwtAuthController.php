@@ -6,7 +6,9 @@ use Exception;
 use Flarum\Settings\SettingsRepositoryInterface;
 use Flarum\User\User;
 use Illuminate\Support\Arr;
-use Laminas\Diactoros\Response\RedirectResponse;
+use Laminas\Diactoros\Response\JsonResponse;
+use Lcobucci\JWT\Signer\Hmac\Sha256;
+use Lcobucci\JWT\Signer\Key;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Psr\Http\Server\RequestHandlerInterface;
@@ -47,6 +49,9 @@ class JwtAuthController implements RequestHandlerInterface
     /** @var string */
     protected $iss;
     
+    /** @var string */
+    private $signer_key;
+    
     /**
      * @param Client $api
      * @param SessionAuthenticator $authenticator
@@ -72,9 +77,10 @@ class JwtAuthController implements RequestHandlerInterface
         $conf = app('flarum.config');
         $this->site_url = $conf['url'];
         $this->iss = $settings->get('maicol07-jwt-auth.iss');
+        $this->signer_key = $settings->get('maicol07-jwt-auth.signer_key');
     }
     
-    private function login(User $user, string $avatar, Request $request, ?ResponseInterface $response=null): void
+    private function login(User $user, string $avatar, Request $request, ?ResponseInterface $response=null)
     {
         // Login
         $id = $user->id;
@@ -84,10 +90,13 @@ class JwtAuthController implements RequestHandlerInterface
     
         $session = $request->getAttribute('session');
         $this->authenticator->logIn($session, $id);
+        $token = $user->accessTokens()->latest()->getResults();
         
         if ($response !== null) {
             $this->rememberer->rememberUser($response, $id);
         }
+        
+        return $token;
     }
     
     /**
@@ -99,6 +108,9 @@ class JwtAuthController implements RequestHandlerInterface
     {
         $queryParams = $request->getQueryParams();
         $token = (new Parser())->parse((string) $queryParams['token']);
+        if (!$token->verify(new Sha256(), new Key($this->signer_key))) {
+            throw new PermissionDeniedException('Signature key does not correspond to the one on the token!');
+        }
 
         $jwt_user = $token->getClaim('user');
         
@@ -112,7 +124,7 @@ class JwtAuthController implements RequestHandlerInterface
         $user = $this->users->findByIdentification(Arr::get($jwt_user, 'attributes.email') ?? Arr::get($jwt_user, 'attributes.username'));
 
         if ($user !== null) {
-            $this->login($user, $avatar, $request);
+            $token = $this->login($user, $avatar, $request);
         } else {
             // Signup
             $jti = $token->getClaim('jti');
@@ -150,10 +162,10 @@ class JwtAuthController implements RequestHandlerInterface
                 $user->activate();
                 $user->save();
 
-                $this->login($user, $avatar, $request);
+                $token = $this->login($user, $avatar, $request);
             }
         }
     
-        return new RedirectResponse('/');
+        return new JsonResponse($token);
     }
 }

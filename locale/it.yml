@@ -1,5 +1,6 @@
 maicol07-jwt-auth:
   admin:
     settings:
-      iss: URL dell'emittente
       title: Impostazioni autenticazione JWT
+      iss: URL dell'emittente
+      signer_key: Chiave del firmatario

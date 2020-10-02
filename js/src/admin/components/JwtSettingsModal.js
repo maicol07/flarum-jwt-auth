@@ -10,6 +10,9 @@ export default () => {
         items: [
           <StringItem key="maicol07-jwt-auth.iss">
             {app.translator.trans('maicol07-jwt-auth.admin.settings.iss')}
+          </StringItem>,
+          <StringItem key="maicol07-jwt-auth.signer_key">
+              {app.translator.trans('maicol07-jwt-auth.admin.settings.signer_key')}
           </StringItem>
         ],
       }),

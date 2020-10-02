@@ -1,5 +1,6 @@
 maicol07-jwt-auth:
   admin:
     settings:
-      iss: Issuing URL
       title: JWT Auth Settings
+      iss: Issuing Domain
+      signer_key: Signer key
