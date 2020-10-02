@@ -5,6 +5,7 @@ namespace Maicol07\JwtAuth;
 use Exception;
 use Flarum\Settings\SettingsRepositoryInterface;
 use Flarum\User\User;
+use Illuminate\Support\Arr;
 use Laminas\Diactoros\Response\RedirectResponse;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface as Request;
@@ -100,15 +101,15 @@ class JwtAuthController implements RequestHandlerInterface
         $token = (new Parser())->parse((string) $queryParams['token']);
 
         $jwt_user = $token->getClaim('user');
-
+        
         // remove any sizing params
-        $avatar = $jwt_user->avatar;
+        $avatar = Arr::get($jwt_user, 'attributes.avatarUrl');
         $param = '?sz=';
         if (strpos($avatar, $param)) {
             $avatar = substr($avatar, 0, strpos($avatar, $param));
         }
         
-        $user = $this->users->findByIdentification($jwt_user->email ?? $jwt_user->username);
+        $user = $this->users->findByIdentification(Arr::get($jwt_user, 'attributes.email') ?? Arr::get($jwt_user, 'attributes.username'));
 
         if ($user !== null) {
             $this->login($user, $avatar, $request);
@@ -128,19 +129,13 @@ class JwtAuthController implements RequestHandlerInterface
     
                 throw new PermissionDeniedException($message ?? 'Invalid token.');
             }
-    
-            $userdata = [
-                'username' => $jwt_user->username,
-                'email' => $jwt_user->email,
-                'password' => $jwt_user->password,
-                'isEmailConfirmed' => 1,
-                'avatarUrl' => $avatar,
-            ];
+            
+            $jwt_user['attributes']['isEmailConfirmed'] = true;
     
             $controller = CreateUserController::class;
     
             $actor = $this->users->findOrFail(1);
-            $body = ['data' => ['attributes' => $userdata]];
+            $body = ['data' => $jwt_user];
     
             try {
                 $response = $this->api->send($controller, $actor, [], $body);

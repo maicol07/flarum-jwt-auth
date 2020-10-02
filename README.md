@@ -22,6 +22,6 @@ php flarum cache:clear
 
 ## Usage
 
-Pass the JWT as a param to the following URL: `http://yourfloarumdomain.com/api/jwt-auth?token=[token]`.
+Pass the JWT as a param to the following URL: `http://yourfloarumdomain.com/api/auth/jwt?token=[token]`.
 
 This will register the user with the username being the same as the prefix of the email address and then log them into that account. The password is randomly generated. This is meant to work in conjunction with SSO extensions to handle ongoing authentication.
