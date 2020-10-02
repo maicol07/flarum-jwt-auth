@@ -2,14 +2,15 @@
 
 namespace Maicol07\JwtAuth;
 
-use GuzzleHttp\Exception\RequestException;
+use Exception;
+use Flarum\Settings\SettingsRepositoryInterface;
+use Flarum\User\User;
 use Laminas\Diactoros\Response\RedirectResponse;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Psr\Http\Server\RequestHandlerInterface;
 use Lcobucci\JWT\Parser;
 use Lcobucci\JWT\ValidationData;
-use Lcobucci\JWT\Claim\Validatable;
 use Flarum\Api\Controller\CreateUserController;
 use Flarum\User\Exception\PermissionDeniedException;
 use Flarum\User\UserRepository;
@@ -17,9 +18,7 @@ use Flarum\Api\Client;
 use Flarum\Http\Rememberer;
 use Flarum\Http\SessionAuthenticator;
 use Flarum\Foundation\Application;
-use GuzzleHttp\Client as HttpClient;
-use League\Flysystem\Adapter\Local;
-use League\Flysystem\Filesystem;
+use RuntimeException;
 
 class JwtAuthController implements RequestHandlerInterface
 {
@@ -44,15 +43,25 @@ class JwtAuthController implements RequestHandlerInterface
     /** @var string */
     protected $site_url;
     
+    /** @var string */
+    protected $iss;
+    
     /**
      * @param Client $api
      * @param SessionAuthenticator $authenticator
      * @param Rememberer $rememberer
      * @param UserRepository $users
      * @param Application $app
+     * @param SettingsRepositoryInterface $settings
      */
-    public function __construct(Client $api, SessionAuthenticator $authenticator, Rememberer $rememberer, UserRepository $users, Application $app)
-    {
+    public function __construct(
+        Client $api,
+        SessionAuthenticator $authenticator,
+        Rememberer $rememberer,
+        UserRepository $users,
+        Application $app,
+        SettingsRepositoryInterface $settings
+    ) {
         $this->api = $api;
         $this->authenticator = $authenticator;
         $this->rememberer = $rememberer;
@@ -61,251 +70,95 @@ class JwtAuthController implements RequestHandlerInterface
         $this->public_path = $app->publicPath();
         $conf = app('flarum.config');
         $this->site_url = $conf['url'];
+        $this->iss = $settings->get('maicol07-jwt-auth.iss');
     }
-
+    
+    private function login(User $user, string $avatar, Request $request, ?ResponseInterface $response=null): void
+    {
+        // Login
+        $id = $user->id;
+    
+        $user->changeAvatarPath($avatar);
+        $user->save();
+    
+        $session = $request->getAttribute('session');
+        $this->authenticator->logIn($session, $id);
+        
+        if ($response !== null) {
+            $this->rememberer->rememberUser($response, $id);
+        }
+    }
+    
+    /**
+     * @param Request $request
+     * @return ResponseInterface
+     * @throws PermissionDeniedException
+     */
     public function handle(Request $request): ResponseInterface
     {
         $queryParams = $request->getQueryParams();
+        $token = (new Parser())->parse((string) $queryParams['token']);
 
-        app('log')->info('Query Params = '.var_export($queryParams, 1));
-        $token = $queryParams['token'];
-        $token = (new Parser())->parse((string) $token); // Parses from a string
-
-        $headers = $token->getHeaders(); // Retrieves the token headers
-        $claims = $token->getClaims(); // Retrieves the token claims
-
-        app('log')->info('Headers = '.var_export($headers, 1));
-        app('log')->info('Claims = '.var_export($claims, 1));
-
-        $email = $token->getClaim('ema');
-        $avatar = $token->getClaim('ava');
+        $jwt_user = $token->getClaim('user');
 
         // remove any sizing params
-        $p = '?sz=';
-        if (strpos($avatar, $p)) {
-            $avatar = substr($avatar, 0, strpos($avatar, $p));
+        $avatar = $jwt_user->avatar;
+        $param = '?sz=';
+        if (strpos($avatar, $param)) {
+            $avatar = substr($avatar, 0, strpos($avatar, $param));
         }
+        
+        $user = $this->users->findByIdentification($jwt_user->email ?? $jwt_user->username);
 
-        // get user info from care central... find out role
-        $httpClient = new HttpClient();
-        $res = $httpClient->get('https://carecentral.nursenextdoor.com/api/simpleuser/'.$email.'/HGUWYDG2374g09mas');
-        $body = $res->getBody()->getContents();
-        $cc_user = json_decode($body, false);
-
-        app('log')->info('User API response = '.var_export($cc_user, 1));
-        app('log')->info('User Role = '.$cc_user->data->role_id);
-
-        $accepted_role_ids = [1,5,6,7,10];
-        if (!in_array($cc_user->data->role_id, $accepted_role_ids, true)) {
-            app('log')->info('role is invalid!');
-            throw new PermissionDeniedException('Invalid role.');
-        }
-
-        $u = $this->users->findByEmail($email);
-
-        if ($u !== null) {
-            // logIn
-            app('log')->info('Login');
-            $userId = $u->id;
-            $avatarAtt = $u->getAvatarUrlAttribute();
-
-            $target = 'photo.jpg';
-            $length = strlen($target);
-            if ((empty($avatarAtt) || (strpos($avatarAtt, 'http') === 0)) && !empty($avatar) && (substr($avatar, -$length) === $target)) {
-                $httpClient = new HttpClient();
-                try {
-                    $res = $httpClient->request('GET', $avatar);
-                    if ($res->getStatusCode() !== 404 && $res->getStatusCode() != 500) {
-                        $contents = file_get_contents($avatar);
-                        $user_dir = $this->path.DIRECTORY_SEPARATOR.'user'.DIRECTORY_SEPARATOR.$u->id;
-                        $filename = 'profile_'.$u->id.'.jpg';
-                        $fs = new Filesystem(new Local($user_dir));
-                        $fs->put($filename, $contents);
-
-                        //$profile_path = realpath($user_dir.DIRECTORY_SEPARATOR.$filename);
-                        $public_url = 'user'.DIRECTORY_SEPARATOR.$u->id.DIRECTORY_SEPARATOR.$filename;
-
-                        app('log')->info('Public Profile pic url = '.$public_url);
-
-                        $avatar = $public_url;
-                        $u->changeAvatarPath($avatar);
-                        $u->save();
-                    }
-                } catch (RequestException $e) {
-                    app('log')->info('Problem loading avatar: '.$e->getMessage());
-                }
-            }
-
-            $session = $request->getAttribute('session');
-            $this->authenticator->logIn($session, $userId);
-        // $response = $this->rememberer->rememberUser($response, $userId);
+        if ($user !== null) {
+            $this->login($user, $avatar, $request);
         } else {
-            // register
-            app('log')->info('Register');
-
-            if ((strpos($email, 'nursenextdoor.com') === false) && (strpos($email, 'sixfactor.com') === false)) {
-                // throw new Exception('Not authorized.');
-                throw new PermissionDeniedException('Invalid account domain.');
-            }
-
-            $iat = $token->getClaim('iat');
-            $sub = $token->getClaim('sub');
+            // Signup
             $jti = $token->getClaim('jti');
-            $hash = md5(''.$sub.$iat);
-
-            app('log')->info('Comparing...'.$hash.' = '.$jti);
-
-            if ($hash == $jti) {
-                // match!
-                app('log')->info('Hash match!');
-            }
 
             $data = new ValidationData(); // It will use the current time to validate (iat, nbf and exp)
-            $data->setIssuer('https://carecentral.nursenextdoor.com/auth/jwt');
+            $data->setIssuer($this->iss);
+            $data->setAudience($this->site_url);
             $data->setId($jti);
 
-            if ($token->validate($data)) {
-                // check if the user is in the database
-                $username = substr($email, 0, strpos($email, '@'));
-                $username = preg_replace("/[^A-Za-z0-9 ]/", '', $username);
-                $usernameExists = $this->users->findByIdentification($username);
-                if ($usernameExists !== null) {
-                    $username .= random_int(10, 99);
+            if (!$token->validate($data)) {
+                if ($token->isExpired()) {
+                    $message = 'Token expired.';
                 }
-                $password = $this->generateStrongPassword();
-                $userdata = [
-                    'username' => $username,
-                    'email' => $email,
-                    'password' => $password,
-                    'isEmailConfirmed' => 1,
-                    'avatarUrl' => $avatar,
-                ];
-
-                $controller = CreateUserController::class;
-                // $actor = $request->getAttribute('actor');
-
-                // use admin actor
-                $actor = $this->users->findOrFail(1);
-                $body = ['data' => ['attributes' => $userdata]];
-
-                app('log')->info('Actor = '.var_export($actor, 1));
-                app('log')->info('Body = '.var_export($body, 1));
-            } else {
-                app('log')->error('Invalid token');
-                // if ($token->isExpired()) {
-                //     app('log')->error('Expired token');
-                // }
-
-                $claims = [];
-                foreach ($token->getClaims() as $claim) {
-                    if ($claim instanceof Validatable) {
-                        if (!$claim->validate($data)) {
-                            app('log')->error('Failed: '.var_export($claim, 1));
-                        }
-                    }
-                }
-
-                throw new PermissionDeniedException('Invalid token.');
+    
+                throw new PermissionDeniedException($message ?? 'Invalid token.');
             }
-
-            app('log')->info('Valid? = '.var_export($token->validate($data), 1));
-
-            $response = $this->api->send($controller, $actor, [], $body);
-
+    
+            $userdata = [
+                'username' => $jwt_user->username,
+                'email' => $jwt_user->email,
+                'password' => $jwt_user->password,
+                'isEmailConfirmed' => 1,
+                'avatarUrl' => $avatar,
+            ];
+    
+            $controller = CreateUserController::class;
+    
+            $actor = $this->users->findOrFail(1);
+            $body = ['data' => ['attributes' => $userdata]];
+    
+            try {
+                $response = $this->api->send($controller, $actor, [], $body);
+            } catch (Exception $e) {
+                throw new RuntimeException("Error during signup");
+            }
+    
             $body = json_decode($response->getBody(), false);
-
             if (isset($body->data)) {
-                $userId = $body->data->id;
+                $id = $body->data->id;
+                $user = $this->users->findOrFail($id);
+                $user->activate();
+                $user->save();
 
-                $user = User::find($userId);
-
-                $target = 'photo.jpg';
-                $length = strlen($target);
-                if (!empty($avatar) && (substr($avatar, -$length) === $target)) {
-                    $httpClient = new HttpClient();
-                    $res = $httpClient->request('GET', $avatar);
-                    if ($res->getStatusCode() !== 404 && $res->getStatusCode() != 500) {
-                        $contents = file_get_contents($avatar);
-                        $user_dir = $this->path.DIRECTORY_SEPARATOR.'user'.DIRECTORY_SEPARATOR.$user->id;
-                        $filename = 'profile_'.$user->id.'.jpg';
-                        $fs = new Filesystem(new Local($user_dir));
-                        $fs->put($filename, $contents);
-
-                        //$profile_path = realpath($user_dir.DIRECTORY_SEPARATOR.$filename);
-                        $public_url = 'user'.DIRECTORY_SEPARATOR.$user->id.DIRECTORY_SEPARATOR.$filename;
-
-                        app('log')->info('Public Profile pic url = '.$public_url);
-
-                        $avatar = $public_url;
-                        $user->changeAvatarPath($avatar);
-                        $user->save();
-                    }
-                }
-
-
-                // log in as new user...
-                $session = $request->getAttribute('session');
-                $this->authenticator->logIn($session, $userId);
-
-                $response = $this->rememberer->rememberUser($response, $userId);
+                $this->login($user, $avatar, $request);
             }
         }
     
         return new RedirectResponse('/');
-    }
-
-    // Generates a strong password of N length containing at least one lower case letter,
-    // one uppercase letter, one digit, and one special character. The remaining characters
-    // in the password are chosen at random from those four sets.
-    //
-    // The available characters in each set are user friendly - there are no ambiguous
-    // characters such as i, l, 1, o, 0, etc. This, coupled with the $add_dashes option,
-    // makes it much easier for users to manually type or speak their passwords.
-    //
-    // Note: the $add_dashes option will increase the length of the password by
-    // floor(sqrt(N)) characters.
-
-    private function generateStrongPassword($length = 9, $add_dashes = false, $available_sets = 'luds')
-    {
-        $sets = array();
-        if (strpos($available_sets, 'l') !== false) {
-            $sets[] = 'abcdefghjkmnpqrstuvwxyz';
-        }
-        if (strpos($available_sets, 'u') !== false) {
-            $sets[] = 'ABCDEFGHJKMNPQRSTUVWXYZ';
-        }
-        if (strpos($available_sets, 'd') !== false) {
-            $sets[] = '23456789';
-        }
-        if (strpos($available_sets, 's') !== false) {
-            $sets[] = '!@#$%&*?';
-        }
-
-        $all = '';
-        $password = '';
-        foreach ($sets as $set) {
-            $password .= $set[array_rand(str_split($set))];
-            $all .= $set;
-        }
-
-        $all = str_split($all);
-        for ($i = 0; $i < $length - count($sets); $i++) {
-            $password .= $all[array_rand($all)];
-        }
-
-        $password = str_shuffle($password);
-
-        if (!$add_dashes) {
-            return $password;
-        }
-
-        $dash_len = floor(sqrt($length));
-        $dash_str = '';
-        while (strlen($password) > $dash_len) {
-            $dash_str .= substr($password, 0, $dash_len) . '-';
-            $password = substr($password, $dash_len);
-        }
-        $dash_str .= $password;
-        return $dash_str;
     }
 }
