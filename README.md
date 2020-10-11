@@ -1,6 +1,8 @@
 # JWT Register and Authenticate by Coldsnake Digital
 [![MIT license](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/maicol07/flarum-jwt-auth/blob/master/LICENSE.md)
 
+**NOTE: MOVED TO [FLARUM SSO EXTENSION](https://github.com/maicol07/flarum-ext-sso)**
+
 A fork of [rattler72/flarum-jwt-auth](https://github.com/rattler72/flarum-jwt-auth).
 
 This extension registers and authenticates a user based on a JWT.
